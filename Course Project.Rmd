@@ -1,0 +1,135 @@
+# Practical Machine Learning Course Project
+
+# Executive Summary
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self-movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. More information is available on the website: http://groupware.les.inf.puc-rio.br/har.
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbbell of six participants. They were asked to perform barbell lifts correctly and incorrectly in five different ways. The project's goal is to predict the manner in which the participants did the exercise.  In this report, we will describe how we built our model using cross validation, what are the expected out of sample error, and why we made the choices we did. In the prediction model, we predict 20 different test cases.
+
+# Data
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. The training data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv, and the testing data are available here: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv.
+
+``` {r downloading_data, cache=TRUE}
+# Setting the default workspace, in this case the directory is D:\A Practical Machine Learning\Peer Assessments\data.
+setwd("D:/A Practical Machine Learning/Peer Assessments/data")
+# To avoid error in the URLthat is of type https:// URLs we need to use --internet2.
+setInternet2(TRUE)
+# setInternet2(TRUE) are used if the certificate is considered to be valid.
+# Downloading the two datasets:
+downloaddata <- function(url, nastrings) {
+  temp <- tempfile()
+  download.file(url, temp)
+  data <- read.csv(temp, na.strings = nastrings)
+  unlink(temp)
+  return(data)
+}
+```
+
+# Exploratory Data Analysis
+
+## Creating training, test and validation sets
+
+``` {r exploratory_data_analysis, cache=TRUE}
+
+trainurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+train <- downloaddata(trainurl, c("", "NA", "#DIV/0!"))
+
+testurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+test <- downloaddata(testurl, c("", "NA", "#DIV/0!"))
+# verifying data
+dim(train)
+table(train$classe)
+```
+
+As observed, training data has 19622 observations with 160 variables, and the distribution of the five measured stances ("classes") named as A,B,C,D and E:
+
+We have a large training set (19,622 entries) and a small testing set (20 entries). Instead of running the model throughout all training dataset once, as it would be time consuming, we decided to split the training dataset. We separate our training data into a training set and a validation set so that we can validate our model. We chose to divide the given training set into two sets, each of which was then split into a training set (comprising 80% of the entries) and a validation set (or test set) (comprising 20% of the entries).
+
+``` {r partitioning_sets, cache=TRUE}
+library(caret)
+set.seed(123456)
+trainset <- createDataPartition(train$classe, p = 0.8, list = FALSE)
+Training <- train[trainset, ]
+Validation <- train[-trainset, ]
+```
+
+## Feature selection
+
+First we clean up near zero variance features, columns with missing values and descriptive fields.
+
+``` {r feature_selection, cache=TRUE}
+# exclude near zero variance features
+nzvcol <- nearZeroVar(Training)
+Training <- Training[, -nzvcol]
+# exclude columns with 40% more missing values exclude descriptive columns like name etc
+cntlength <- sapply(Training, function(x) {
+    sum(!(is.na(x) | x == ""))
+})
+nullcol <- names(cntlength[cntlength < 0.6 * length(Training$classe)])
+descriptcol <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", 
+    "cvtd_timestamp", "new_window", "num_window")
+excludecols <- c(descriptcol, nullcol)
+Training <- Training[, !names(Training) %in% excludecols]
+```
+
+## Model Training
+
+The selected model is the random forest, as implemented in the randomForest package (http://cran.r-project.org/web/packages/randomForest/index.html)  based on Breiman and Cutler's original Fortran code algorithm. Random forests are an ensemble learning method for classification (and regression) that operate by constructing a multitude of decision trees at training time and outputting the class that is the mode of the classes output by individual trees.
+
+``` {r model_training, cache=TRUE}
+library(randomForest)
+rfModel <- randomForest(classe ~ ., data = Training, importance = TRUE, ntrees = 10)
+```
+
+## Model Validation
+
+In this point, we test our model performance on the training set itself and the cross validation set and show the results in Confusion Matrix layout. A Confusion Matrix, also known as a contingency table or an error matrix, is a specific table layout that allows visualization of the performance of an algorithm.
+
+### Training set accuracy
+
+``` {r training_set_accuracy, cache=TRUE}
+ptraining <- predict(rfModel, Training)
+print(confusionMatrix(ptraining, Training$classe))
+```
+
+I seems that the model performs well in the training set, but we need cross validate the performance alongside the held out set and observe if it is not overfitting.
+
+## Validation set accuracy (Out-of-Sample)
+
+Here we test the model performance on the cross validation set that was held out from training. Out-of-sample testing and forward performance testing provide further confirmation regarding a model's effectiveness.
+
+``` {r validation_set_prediction, cache=TRUE}
+pvalidation <- predict(rfModel, Validation)
+print(confusionMatrix(pvalidation, Validation$classe))
+```
+
+As we can observe, the cross validation accuracy is 99.5% and the out-of-sample error is therefore 0.5% so the model performance is quite good.
+
+## Test set prediction
+
+The algorithm for prediction on the test set is:
+
+``` {r testing_model, cache=TRUE}
+ptest <- predict(rfModel, test)
+```
+
+# Results
+
+``` {r final_model_results, cache=TRUE}
+ptest
+```
+
+Finally, saving the output to files according to instructions in the Prediction Assignment Writeup and post it to the submission page.
+
+``` {r writing_model_results, cache=TRUE}
+answers <- as.vector(ptest)
+pml_write_files = function(x) {
+    n = length(x)
+    for (i in 1:n) {
+        filename = paste0("problem_id_", i, ".txt")
+        write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, 
+            col.names = FALSE)
+    }
+}
+pml_write_files(answers)
+```
